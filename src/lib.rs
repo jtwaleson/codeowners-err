@@ -122,7 +122,7 @@ impl Owners {
         self.paths
             .iter()
             .filter_map(|mapping| {
-                let &(ref pattern, ref owners) = mapping;
+                let (pattern, owners) = mapping;
                 let opts = glob::MatchOptions {
                     case_sensitive: false,
                     require_literal_separator: pattern.as_str().contains('/'),
