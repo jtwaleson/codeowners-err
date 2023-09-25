@@ -209,7 +209,7 @@ where
 {
     let mut paths = BufReader::new(read)
         .lines()
-        .filter_map(Result::ok)
+        .map_while(Result::ok)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .fold(Vec::new(), |mut paths, line| {
             let mut elements = line.split_whitespace();
