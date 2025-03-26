@@ -15,7 +15,7 @@ codeowners = "0.1"
 
 ## Fork details (jtwaleson)
 
-Updates the dependencies and rust version. Also return a Result rather than an "unwrap" if parsing the CODEOWNERS file returns an error. Optionally we ignore lines that contain errors.
+Updates the dependencies and rust version. Also return a Result rather than an "unwrap" if parsing the CODEOWNERS file returns an error. Optionally we can handle invalid patterns in a lenient way using `PatternErrorHandling::Lenient`.
 
 ## Usage
 
@@ -28,7 +28,7 @@ use std::env;
 fn main() {
   if let (Some(owners_file), Some(path)) =
      (env::args().nth(1), env::args().nth(2)) {
-     let owners = codeowners::from_path(owners_file, false).unwrap();
+     let owners = codeowners::from_path(owners_file, codeowners::PatternErrorHandling::Strict).unwrap();
      match owners.of(&path) {
        None => println!("{} is up for adoption", path),
        Some(owners) => {

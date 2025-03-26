@@ -15,7 +15,7 @@
 //! fn main() {
 //!   if let (Some(owners_file), Some(path)) =
 //!      (env::args().nth(1), env::args().nth(2)) {
-//!      let owners = codeowners::from_path(owners_file, false).unwrap();
+//!      let owners = codeowners::from_path(owners_file, codeowners::PatternErrorHandling::Strict).unwrap();
 //!      match owners.of(&path) {
 //!        None => println!("{} is up for adoption", path),
 //!        Some(owners) => {
@@ -43,6 +43,15 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+
+/// Controls how pattern errors are handled when parsing CODEOWNERS files
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PatternErrorHandling {
+    /// Return an error if any pattern is invalid
+    Strict,
+    /// Skip invalid patterns and continue parsing
+    Lenient,
+}
 
 const CODEOWNERS: &str = "CODEOWNERS";
 
@@ -158,7 +167,7 @@ impl Owners {
 ///   Some(ownersfile)  => {
 ///     println!(
 ///      "{:#?}",
-///      codeowners::from_path(ownersfile, false)
+///      codeowners::from_path(ownersfile, codeowners::PatternErrorHandling::Strict)
 ///    )
 ///  },
 ///   _ => println!("failed to find CODEOWNERS file")
@@ -183,11 +192,14 @@ where
 }
 
 /// Parse a CODEOWNERS file existing at a given path
-pub fn from_path<P>(path: P, ignore_pattern_errors: bool) -> Result<Owners, glob::PatternError>
+pub fn from_path<P>(
+    path: P,
+    error_handling: PatternErrorHandling,
+) -> Result<Owners, glob::PatternError>
 where
     P: AsRef<Path>,
 {
-    crate::from_reader(File::open(path).unwrap(), ignore_pattern_errors)
+    crate::from_reader(File::open(path).unwrap(), error_handling)
 }
 
 /// Parse a CODEOWNERS file from some readable source
@@ -197,7 +209,10 @@ where
 /// [patterns](https://www.kernel.org/pub/software/scm/git/docs/gitignore.html#_pattern_format)
 /// followed by an identifier for an owner. More information can be found
 /// [here](https://help.github.com/articles/about-codeowners/#codeowners-syntax)
-pub fn from_reader<R>(read: R, ignore_pattern_errors: bool) -> Result<Owners, glob::PatternError>
+pub fn from_reader<R>(
+    read: R,
+    error_handling: PatternErrorHandling,
+) -> Result<Owners, glob::PatternError>
 where
     R: Read,
 {
@@ -216,8 +231,8 @@ where
                 });
                 match pattern(path) {
                     Ok(pattern) => paths.push((pattern, owners)),
-                    Err(e) if !ignore_pattern_errors => return Err(e),
-                    Err(_) => {} // Ignore error if ignore_pattern_errors is true
+                    Err(e) if error_handling == PatternErrorHandling::Strict => return Err(e),
+                    Err(_) => {} // Skip invalid patterns in lenient mode
                 }
             }
             Ok(paths)
@@ -304,7 +319,7 @@ apps/ @octocat
 
     #[test]
     fn from_reader_parses() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         assert_eq!(
             owners,
             Owners {
@@ -347,7 +362,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_wildcard() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         assert_eq!(
             owners.of("foo.txt"),
             Some(&vec![
@@ -366,7 +381,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_js_extention() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         assert_eq!(
             owners.of("foo.js"),
             Some(&vec![Owner::Username("@js-owner".into())])
@@ -379,7 +394,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_go_extention() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         assert_eq!(
             owners.of("foo.go"),
             Some(&vec![Owner::Email("docs@example.com".into())])
@@ -392,7 +407,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_anchored_build_logs() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         // relative to root
         assert_eq!(
             owners.of("build/logs/foo.go"),
@@ -411,7 +426,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_unanchored_docs() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         // docs anywhere
         assert_eq!(
             owners.of("foo/docs/foo.js"),
@@ -430,7 +445,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_unanchored_apps() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         assert_eq!(
             owners.of("foo/apps/foo.js"),
             Some(&vec![Owner::Username("@octocat".into())])
@@ -439,7 +454,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_anchored_docs() {
-        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
+        let owners = from_reader(EXAMPLE.as_bytes(), PatternErrorHandling::Strict).unwrap();
         // relative to root
         assert_eq!(
             owners.of("docs/foo.js"),
@@ -449,7 +464,7 @@ apps/ @octocat
 
     #[test]
     fn implied_children_owners() {
-        let owners = from_reader("foo/bar @doug".as_bytes(), false).unwrap();
+        let owners = from_reader("foo/bar @doug".as_bytes(), PatternErrorHandling::Strict).unwrap();
         assert_eq!(
             owners.of("foo/bar/baz.rs"),
             Some(&vec![Owner::Username("@doug".into())])
@@ -458,19 +473,30 @@ apps/ @octocat
 
     #[test]
     fn invalid_pattern_returns_error() {
-        let result = from_reader("invalid[pattern @owner".as_bytes(), false);
+        let result = from_reader(
+            "invalid[pattern @owner".as_bytes(),
+            PatternErrorHandling::Strict,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn invalid_pattern_ignored_when_configured() {
-        let owners = from_reader("invalid[pattern @owner".as_bytes(), true).unwrap();
+        let owners = from_reader(
+            "invalid[pattern @owner".as_bytes(),
+            PatternErrorHandling::Lenient,
+        )
+        .unwrap();
         assert_eq!(owners.paths.len(), 0);
     }
 
     #[test]
     fn example_works() {
-        let owners = from_reader("* @global-owner1 @global-owner2".as_bytes(), false).unwrap();
+        let owners = from_reader(
+            "* @global-owner1 @global-owner2".as_bytes(),
+            PatternErrorHandling::Strict,
+        )
+        .unwrap();
         assert_eq!(
             owners.of("foo.txt"),
             Some(&vec![
