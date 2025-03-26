@@ -15,7 +15,7 @@
 //! fn main() {
 //!   if let (Some(owners_file), Some(path)) =
 //!      (env::args().nth(1), env::args().nth(2)) {
-//!      let owners = codeowners::from_path(owners_file);
+//!      let owners = codeowners::from_path(owners_file, false).unwrap();
 //!      match owners.of(&path) {
 //!        None => println!("{} is up for adoption", path),
 //!        Some(owners) => {
@@ -164,7 +164,7 @@ impl Owners {
 ///   Some(ownersfile)  => {
 ///     println!(
 ///      "{:#?}",
-///      codeowners::from_path(ownersfile)
+///      codeowners::from_path(ownersfile, false)
 ///    )
 ///  },
 ///   _ => println!("failed to find CODEOWNERS file")
@@ -189,11 +189,11 @@ where
 }
 
 /// Parse a CODEOWNERS file existing at a given path
-pub fn from_path<P>(path: P) -> Owners
+pub fn from_path<P>(path: P, ignore_pattern_errors: bool) -> Result<Owners, glob::PatternError>
 where
     P: AsRef<Path>,
 {
-    crate::from_reader(File::open(path).unwrap())
+    crate::from_reader(File::open(path).unwrap(), ignore_pattern_errors)
 }
 
 /// Parse a CODEOWNERS file from some readable source
@@ -203,7 +203,7 @@ where
 /// [patterns](https://www.kernel.org/pub/software/scm/git/docs/gitignore.html#_pattern_format)
 /// followed by an identifier for an owner. More information can be found
 /// [here](https://help.github.com/articles/about-codeowners/#codeowners-syntax)
-pub fn from_reader<R>(read: R) -> Owners
+pub fn from_reader<R>(read: R, ignore_pattern_errors: bool) -> Result<Owners, glob::PatternError>
 where
     R: Read,
 {
@@ -211,7 +211,7 @@ where
         .lines()
         .map_while(Result::ok)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .fold(Vec::new(), |mut paths, line| {
+        .try_fold(Vec::new(), |mut paths, line| {
             let mut elements = line.split_whitespace();
             if let Some(path) = elements.next() {
                 let owners = elements.fold(Vec::new(), |mut result, owner| {
@@ -220,16 +220,20 @@ where
                     }
                     result
                 });
-                paths.push((pattern(path), owners))
+                match pattern(path) {
+                    Ok(pattern) => paths.push((pattern, owners)),
+                    Err(e) if !ignore_pattern_errors => return Err(e),
+                    Err(_) => {} // Ignore error if ignore_pattern_errors is true
+                }
             }
-            paths
-        });
+            Ok(paths)
+        })?;
     // last match takes precedence
     paths.reverse();
-    Owners { paths }
+    Ok(Owners { paths })
 }
 
-fn pattern(path: &str) -> Pattern {
+fn pattern(path: &str) -> Result<Pattern, glob::PatternError> {
     // if pattern starts with anchor or explicit wild card, it should
     // match any prefix
     let prefixed = if path.starts_with('*') || path.starts_with('/') {
@@ -244,7 +248,7 @@ fn pattern(path: &str) -> Pattern {
     if normalized.ends_with('/') {
         normalized.push_str("**");
     }
-    Pattern::new(&normalized).unwrap()
+    Pattern::new(&normalized)
 }
 
 #[cfg(test)]
@@ -306,7 +310,7 @@ apps/ @octocat
 
     #[test]
     fn from_reader_parses() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         assert_eq!(
             owners,
             Owners {
@@ -349,7 +353,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_wildcard() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         assert_eq!(
             owners.of("foo.txt"),
             Some(&vec![
@@ -368,7 +372,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_js_extention() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         assert_eq!(
             owners.of("foo.js"),
             Some(&vec![Owner::Username("@js-owner".into())])
@@ -381,7 +385,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_go_extention() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         assert_eq!(
             owners.of("foo.go"),
             Some(&vec![Owner::Email("docs@example.com".into())])
@@ -394,7 +398,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_anchored_build_logs() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         // relative to root
         assert_eq!(
             owners.of("build/logs/foo.go"),
@@ -413,7 +417,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_unanchored_docs() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         // docs anywhere
         assert_eq!(
             owners.of("foo/docs/foo.js"),
@@ -432,7 +436,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_unanchored_apps() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         assert_eq!(
             owners.of("foo/apps/foo.js"),
             Some(&vec![Owner::Username("@octocat".into())])
@@ -441,7 +445,7 @@ apps/ @octocat
 
     #[test]
     fn owners_owns_anchored_docs() {
-        let owners = from_reader(EXAMPLE.as_bytes());
+        let owners = from_reader(EXAMPLE.as_bytes(), false).unwrap();
         // relative to root
         assert_eq!(
             owners.of("docs/foo.js"),
@@ -451,11 +455,34 @@ apps/ @octocat
 
     #[test]
     fn implied_children_owners() {
-        let owners = from_reader("foo/bar @doug".as_bytes());
+        let owners = from_reader("foo/bar @doug".as_bytes(), false).unwrap();
         assert_eq!(
             owners.of("foo/bar/baz.rs"),
             Some(&vec![Owner::Username("@doug".into())])
         )
     }
 
+    #[test]
+    fn invalid_pattern_returns_error() {
+        let result = from_reader("invalid[pattern @owner".as_bytes(), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn invalid_pattern_ignored_when_configured() {
+        let owners = from_reader("invalid[pattern @owner".as_bytes(), true).unwrap();
+        assert_eq!(owners.paths.len(), 0);
+    }
+
+    #[test]
+    fn example_works() {
+        let owners = from_reader("* @global-owner1 @global-owner2".as_bytes(), false).unwrap();
+        assert_eq!(
+            owners.of("foo.txt"),
+            Some(&vec![
+                Owner::Username("@global-owner1".into()),
+                Owner::Username("@global-owner2".into()),
+            ])
+        );
+    }
 }

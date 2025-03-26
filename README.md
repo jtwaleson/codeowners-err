@@ -13,9 +13,14 @@ Add the following to your `Cargo.toml` filter
 codeowners = "0.1"
 ```
 
+## Fork details (jtwaleson)
+
+Updates the dependencies and rust version. Also return a Result rather than an "unwrap" if parsing the CODEOWNERS file returns an error. Optionally we ignore lines that contain errors.
+
 ## Usage
 
 Typical use involves resolving a CODEOWNERS file, parsing it, then querying target paths
+
 
 ```rust
 use std::env;
@@ -23,7 +28,7 @@ use std::env;
 fn main() {
   if let (Some(owners_file), Some(path)) =
      (env::args().nth(1), env::args().nth(2)) {
-     let owners = codeowners::from_path(owners_file);
+     let owners = codeowners::from_path(owners_file, false).unwrap();
      match owners.of(&path) {
        None => println!("{} is up for adoption", path),
        Some(owners) => {
