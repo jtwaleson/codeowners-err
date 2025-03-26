@@ -70,10 +70,7 @@ pub enum Owner {
 }
 
 impl fmt::Display for Owner {
-    fn fmt(
-        &self,
-        f: &mut fmt::Formatter,
-    ) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let inner = match *self {
             Owner::Username(ref u) => u,
             Owner::Team(ref t) => t,
@@ -112,10 +109,7 @@ pub struct Owners {
 
 impl Owners {
     /// Resolve a list of owners matching a given path
-    pub fn of<P>(
-        &self,
-        path: P,
-    ) -> Option<&Vec<Owner>>
+    pub fn of<P>(&self, path: P) -> Option<&Vec<Owner>>
     where
         P: AsRef<Path>,
     {
