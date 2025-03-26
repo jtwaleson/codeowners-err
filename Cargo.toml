@@ -9,7 +9,7 @@ documentation = "https://softprops.github.io/codeowners"
 repository = "https://github.com/softprops/codeowners"
 license = "MIT"
 keywords = ["github", "owners", "ownership"]
-edition = "2021"
+edition = "2024"
 
 [badges]
 travis-ci = { repository = "softprops/codeowners" }
@@ -20,5 +20,5 @@ pretty_assertions = "0.6"
 
 [dependencies]
 glob = "0.3"
-regex = "1.2"
-lazy_static = "1.4"
+regex = "1.11"
+lazy_static = "1.5"
